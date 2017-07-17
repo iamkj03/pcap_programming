@@ -13,6 +13,8 @@
 #include <netinet/ip_icmp.h>
 #include <netinet/udp.h>
 #include <arpa/inet.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 
 /*
 struct sniff_ip {
@@ -102,8 +104,8 @@ void callback(u_char *useless, const struct pcap_pkthdr *pkthdr, const u_char *p
         if(iph->ip_p == IPPROTO_TCP)
         {
             tcph = (struct tcp *) (packet + iph->ip_hl*4);
-            printf("Src Port: %s\n", ntohs(tcph->th_sport));
-            printf("Dst Port: %s\n", ntohs(tcph->th_dport));
+            printf("Src Port: %d\n", ntohs(tcph->th_sport));
+            printf("Dst Port: %d\n", ntohs(tcph->th_dport));
         }
         while(length--)
         {
