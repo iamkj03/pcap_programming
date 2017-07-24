@@ -6,74 +6,8 @@
 #include <net/ethernet.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
+#include <stdint.h>
 
-
-void callback(u_char *useless, const struct pcap_pkthdr *pkthdr, const u_char *packet)
-{
-    struct ether_header *ep;
-    struct ip *iph;
-    struct tcphdr *tcph;
-    int chcnt = 0;                                 //character count
-    int length = pkthdr->len;                      //length of the packet header
-    int i = 0;                                     //for for state
-    u_short ether_type;
-
-    // Bring ethernet header
-    ep = (struct ether_header *)packet;
-
-    //offset the size of ethernet header
-    packet += sizeof(struct ether_header);
-
-    //for the protocol type
-    ether_type = ntohs(ep->ether_type);
-
-    //If it is IP packet
-    if(ether_type == ETHERTYPE_IP)
-    {
-        printf("-------------Information-------------\n");
-        printf("Ethernet Src Address = ");
-        for (i = 0; i<ETH_ALEN; ++i)
-            printf("%.2X ", ep->ether_shost[i]);
-        printf("\n");                                           //Source Mac Address
-
-        printf("Ethernet Dst Address = ");
-        for (i = 0; i<ETH_ALEN;++i)
-            printf("%.2X ", ep->ether_dhost[i]);
-        printf("\n");                                           //Destination Mac Address
-
-        //Data from ip header
-        iph = (struct ip *)packet;
-
-        printf("IP Src Address : %s\n", inet_ntoa(iph->ip_src));//Source IP address
-        printf("IP Dst Address : %s\n", inet_ntoa(iph->ip_dst));//Destination IP address
-
-        //If it is TCP protocol
-        if(iph->ip_p == IPPROTO_TCP)
-        {
-            //Data from tcp header after the ip header
-            tcph=(struct tcp *) (packet + iph->ip_hl*4);
-
-            printf("Src Port: %d\n", ntohs(tcph->th_sport));    //Source port
-            printf("Dst Port: %d\n", ntohs(tcph->th_dport));    //Destination port
-        }
-
-        //Printing the data
-        while(length--)
-        {
-            printf("%02x", *(packet++));
-            if ((++chcnt % 16) == 0)
-                printf("\n");
-        }
-
-    }
-
-    //When there is no IP
-    else{
-            printf("NONE IP\n");
-
-    }
-    printf("\n");
-}
 
 int main(int argc, char *argv[])
 {
@@ -84,9 +18,15 @@ int main(int argc, char *argv[])
     char filter_exp[] = "port 80";  /*The filter expression*/
     bpf_u_int32 maskp;              /*The netmask of our sniffing device*/
     bpf_u_int32 netp;               /*The IP of our sniffing device*/
-    struct pcap_pkthdr header;      /*The header that pcap gives us*/
-    const u_char *packet;           /*The acutal packet*/
-    struct in_addr addr;
+    struct pcap_pkthdr *header;      /*The header that pcap gives us*/
+    const u_char *pkt_data;           /*The acutal packet*/
+    struct ether_header *ep;
+    struct ip *iph;
+    struct tcphdr *tcph;
+    int i = 0;                                     //for for state
+    uint16_t ether_type;
+    char sbuf[20], dbuf[20];
+    int ip_len, tcp_len, j;
 
 
     /*Define the device*/
@@ -97,7 +37,7 @@ int main(int argc, char *argv[])
     }
     printf("DEV: %s\n", dev);
 
-    /*Find the properties for the device*/
+    //Find the properties for the device
     if (pcap_lookupnet(dev, &netp, &maskp, errbuf) == -1) {
         fprintf(stderr, "Couldn't get netmask for device %s\n", dev);
 
@@ -106,11 +46,11 @@ int main(int argc, char *argv[])
 
 
     /*Open the session in promiscuous mode*/
-    handle = pcap_open_live(dev, BUFSIZ, 0, -1, errbuf);
+    handle = pcap_open_live(dev, BUFSIZ, 1, 10000, errbuf);
     if(handle == NULL) {
         fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
         return(2);
-        }
+    }
 
     /*Compile and apply the filter*/
 
@@ -124,10 +64,70 @@ int main(int argc, char *argv[])
         return(2);
     }
 
+    while((pcap_next_ex(handle, &header, &pkt_data)) == 1){
 
-    //Use pcap loop function
-    pcap_loop(handle, filter_exp, callback, NULL);
+    // Bring ethernet header
+    ep = (struct ether_header *)pkt_data;
+
+    //offset the size of ethernet header
+    pkt_data += sizeof(struct ether_header);
+
+    //for the protocol type
+    ether_type = ntohs(ep->ether_type);
+
+    //If it is IP packet0
+    if(ether_type == ETHERTYPE_IP)
+    {
+        printf("-------------Information-------------\n");
+        printf("Ethernet Src Address = ");
+        for (i = 0; i<6; ++i)
+            printf("%.2X ", ep->ether_shost[i]);
+        printf("\n");                                           //Source Mac Address
+
+        printf("Ethernet Dst Address = ");
+        for (i = 0; i<6;++i)
+            printf("%.2X ", ep->ether_dhost[i]);
+        printf("\n");                                           //Destination Mac Address
+
+        //Data from ip header
+        iph = (struct ip *)pkt_data;
+        ip_len = ((iph->ip_hl))*4;
+        printf("ip_len: %d\n", ip_len);
+        printf("IP Src Address : %s\n", inet_ntop(AF_INET, &iph->ip_src, &sbuf, 16));//Source IP address
+        printf("IP Dst Address : %s\n", inet_ntop(AF_INET, &iph->ip_dst, &dbuf, 16));//Destination IP address
+
+        //If it is TCP protocol
+        if(iph->ip_p == IPPROTO_TCP) //IPPROTO_TCP == 6
+        {
+            //Data from tcp header after the ip header
+            tcph=(struct tcphdr *)(pkt_data + (iph->ip_hl)*4);
+            tcp_len = ((tcph->th_off))*4;
+            printf("tcp_len: %d\n", tcp_len);
+            printf("Src Port: %d\n", ntohs(tcph->th_sport));    //Source port
+            printf("Dst Port: %d\n", ntohs(tcph->th_dport));    //Destination port
 
 
+        }
+
+        //Printing the data start location, size
+           for(j=0;j<(header->len)-sizeof(struct ether_header)-ip_len - tcp_len;j++)
+           {
+               printf("%02x ", *pkt_data);
+               pkt_data++;
+
+               if(j%16==0)
+                   printf("\n");
+           }
+
+
+    }
+
+    //When there is no IP
+    else{
+        printf("NONE IP\n");
+
+    }
+    printf("\n");
+    }
     return(0);
 }
